@@ -1,0 +1,52 @@
+engine,n_seeds,repeat,wall_time_s,plugin_time_s,n_cells,engine_reported
+Voro++ (native C++),10,1,0.121465,0.003524,10,Native C++
+Voro++ (native C++),10,2,0.004980,0.001090,10,Native C++
+Voro++ (native C++),10,3,0.004247,0.000975,10,Native C++
+Voro++ OpenMP,10,1,0.011370,0.006859,10,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,10,2,0.007188,0.002558,10,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,10,3,0.006912,0.002219,10,Native C++ OpenMP (20 threads)
+VTK Delaunay,10,1,0.027435,0.022535,10,VTK Delaunay
+VTK Delaunay,10,2,0.016625,0.012659,10,VTK Delaunay
+VTK Delaunay,10,3,0.015888,0.012556,10,VTK Delaunay
+Voro++ (native C++),100,1,0.005778,0.002357,100,Native C++
+Voro++ (native C++),100,2,0.005929,0.002175,100,Native C++
+Voro++ (native C++),100,3,0.006236,0.002259,100,Native C++
+Voro++ OpenMP,100,1,0.008366,0.003148,100,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,100,2,0.008504,0.002924,100,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,100,3,0.008598,0.003027,100,Native C++ OpenMP (20 threads)
+VTK Delaunay,100,1,0.150885,0.140584,100,VTK Delaunay
+VTK Delaunay,100,2,0.130602,0.120676,100,VTK Delaunay
+VTK Delaunay,100,3,0.129118,0.120221,100,VTK Delaunay
+Voro++ (native C++),1000,1,0.021712,0.017530,1000,Native C++
+Voro++ (native C++),1000,2,0.022049,0.017867,1000,Native C++
+Voro++ (native C++),1000,3,0.021585,0.016924,1000,Native C++
+Voro++ OpenMP,1000,1,0.015094,0.009274,1000,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,1000,2,0.018089,0.010223,1000,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,1000,3,0.015685,0.009598,1000,Native C++ OpenMP (20 threads)
+VTK Delaunay,1000,1,1.193315,1.181967,1000,VTK Delaunay
+VTK Delaunay,1000,2,1.192917,1.181557,1000,VTK Delaunay
+VTK Delaunay,1000,3,1.181466,1.171359,1000,VTK Delaunay
+Voro++ (native C++),10000,1,0.218032,0.209111,10000,Native C++
+Voro++ (native C++),10000,2,0.217998,0.209395,10000,Native C++
+Voro++ (native C++),10000,3,0.212196,0.206829,10000,Native C++
+Voro++ OpenMP,10000,1,0.075620,0.060832,10000,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,10000,2,0.084222,0.068413,10000,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,10000,3,0.079508,0.063868,10000,Native C++ OpenMP (20 threads)
+VTK Delaunay,10000,1,12.222184,12.201893,10000,VTK Delaunay
+VTK Delaunay,10000,2,11.673340,11.653415,10000,VTK Delaunay
+VTK Delaunay,10000,3,11.681589,11.662323,10000,VTK Delaunay
+Voro++ (native C++),100000,1,2.390660,2.375246,100000,Native C++
+Voro++ (native C++),100000,2,2.383666,2.368696,100000,Native C++
+Voro++ (native C++),100000,3,2.390096,2.374438,100000,Native C++
+Voro++ OpenMP,100000,1,0.669810,0.654897,100000,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,100000,2,0.665940,0.651541,100000,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,100000,3,0.656442,0.641668,100000,Native C++ OpenMP (20 threads)
+VTK Delaunay,100000,1,120.879089,120.721664,100000,VTK Delaunay
+VTK Delaunay,100000,2,119.720582,119.541694,100000,VTK Delaunay
+VTK Delaunay,100000,3,120.626782,120.415441,100000,VTK Delaunay
+Voro++ (native C++),1000000,1,29.105319,28.930531,1000000,Native C++
+Voro++ (native C++),1000000,2,29.622985,29.510326,1000000,Native C++
+Voro++ (native C++),1000000,3,29.598674,29.420735,1000000,Native C++
+Voro++ OpenMP,1000000,1,7.352640,7.176538,1000000,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,1000000,2,7.791288,7.675495,1000000,Native C++ OpenMP (20 threads)
+Voro++ OpenMP,1000000,3,8.228549,8.076246,1000000,Native C++ OpenMP (20 threads)

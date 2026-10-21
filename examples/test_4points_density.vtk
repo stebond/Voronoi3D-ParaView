@@ -1,0 +1,21 @@
+# vtk DataFile Version 3.0
+4 random points in unit cube with density
+ASCII
+DATASET POLYDATA
+POINTS 4 double
+0.719165 0.451103 0.786878
+0.657894 0.175342 0.880498
+0.708912 0.728851 0.202491
+0.460309 0.396638 0.841412
+VERTICES 4 8
+1 0
+1 1
+1 2
+1 3
+POINT_DATA 4
+SCALARS Density double 1
+LOOKUP_TABLE default
+1
+2
+3
+4

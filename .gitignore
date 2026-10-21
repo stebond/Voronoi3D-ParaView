@@ -1,0 +1,16 @@
+# build products
+engine/build/
+*.obj
+*.exp
+*.lib
+*.dll
+*.so
+*.dylib
+# python
+__pycache__/
+*.pyc
+# editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
