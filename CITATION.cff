@@ -1,20 +1,27 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below and cite Voro++ (Rycroft, 2009)."
+message: "If you use this software, please cite it as below and also cite Voro++ (Rycroft, 2009)."
+type: software
 title: "Voronoi3D for ParaView: 3D (weighted) centroidal Voronoi tessellation plugin"
+abstract: "Voronoi3D is an open-source ParaView plugin that generates three-dimensional Voronoi tessellations of a box domain, from random seeds or from the points of any dataset, and returns the cells as polyhedral unstructured grids. Lloyd iterations produce centroidal Voronoi tessellations; a density-weighted variant with fixed anchor points grades the cell size around user-defined locations. A native C++ engine based on Voro++ (serial and OpenMP) computes the cells."
 version: 1.1.0
 date-released: 2026-11-09
+doi: 10.5281/zenodo.23529969
 authors:
   - family-names: Bonduà
     given-names: Stefano
+    orcid: "https://orcid.org/0000-0002-1632-5024"
     affiliation: "DICAM, University of Bologna"
+    email: stefano.bondua@unibo.it
 license: MIT
 repository-code: "https://github.com/stebond/Voronoi3D-ParaView"
+url: "https://github.com/stebond/Voronoi3D-ParaView"
 keywords:
   - Voronoi
   - Lloyd
   - centroidal Voronoi tessellation
   - ParaView
   - Voro++
+  - unstructured grids
 references:
   - type: article
     authors:
