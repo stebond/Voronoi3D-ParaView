@@ -116,8 +116,14 @@ class _V3DResult(ctypes.Structure):
 
 
 # 3 adds the density weighted Lloyd (v3d_compute_ex), 4 the progress callback (v3d_compute_ex2),
-# 5 the per-axis movement flags (v3d_compute_ex3)
-_NATIVE_ABI_VERSIONS = (2, 3, 4, 5)
+# 5 the per-axis movement flags (v3d_compute_ex3), 6 the convergence history (v3d_compute_ex4),
+# 7 the convergence threshold that stops the iterations (v3d_compute_ex5)
+_NATIVE_ABI_VERSIONS = (2, 3, 4, 5, 6, 7)
+# Convergence of the last native calculation: array (iterations, 3) with the maximum and
+# the mean shift of the seeds (in units of the mean cell size) and the CV of the cell volumes
+_last_convergence = None
+# How the last Lloyd relaxation ended: dict(done, maximum, tol, shift) or None
+_last_stop = None
 _PROGRESS_FN = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_double)
 _native_cache = {"tried": False, "lib": None, "path": None, "message": ""}
 _native_omp_cache = {"tried": False, "lib": None, "path": None, "message": ""}
@@ -187,6 +193,32 @@ def _load_native(omp=False):
                                                 ctypes.POINTER(ctypes.c_double),
                                                 ctypes.c_double, ctypes.c_double,
                                                 _PROGRESS_FN,
+                                                ctypes.POINTER(ctypes.c_int32)]
+            lib.has_history = abi >= 6
+            if lib.has_history:
+                lib.v3d_compute_ex4.restype = ctypes.POINTER(_V3DResult)
+                lib.v3d_compute_ex4.argtypes = [ctypes.c_int64,
+                                                ctypes.POINTER(ctypes.c_double),
+                                                ctypes.POINTER(ctypes.c_double),
+                                                ctypes.c_int32,
+                                                ctypes.POINTER(ctypes.c_double),
+                                                ctypes.c_double, ctypes.c_double,
+                                                _PROGRESS_FN,
+                                                ctypes.POINTER(ctypes.c_int32),
+                                                ctypes.POINTER(ctypes.c_double)]
+            lib.has_stop = abi >= 7
+            if lib.has_stop:
+                lib.v3d_compute_ex5.restype = ctypes.POINTER(_V3DResult)
+                lib.v3d_compute_ex5.argtypes = [ctypes.c_int64,
+                                                ctypes.POINTER(ctypes.c_double),
+                                                ctypes.POINTER(ctypes.c_double),
+                                                ctypes.c_int32,
+                                                ctypes.POINTER(ctypes.c_double),
+                                                ctypes.c_double, ctypes.c_double,
+                                                _PROGRESS_FN,
+                                                ctypes.POINTER(ctypes.c_int32),
+                                                ctypes.POINTER(ctypes.c_double),
+                                                ctypes.c_double,
                                                 ctypes.POINTER(ctypes.c_int32)]
             lib.v3d_free.restype = None
             lib.v3d_free.argtypes = [ctypes.POINTER(_V3DResult)]
@@ -284,8 +316,10 @@ class Cancelled(Exception):
 
 def _generate_native(lib, pts, lo, hi, seed_ids, lloyd_iterations, out,
                      density=None, radius=1.0, exponent=1.0, progress=None,
-                     move_axes=(True, True, True)):
-    """Run the C++ engine and fill `out` (vtkUnstructuredGrid)."""
+                     move_axes=(True, True, True), shift_tol=0.0):
+    """Run the C++ engine and fill `out` (vtkUnstructuredGrid). shift_tol > 0 stops
+    the Lloyd iterations when the mean seed shift (in units of the mean cell size)
+    falls below it; lloyd_iterations is then the maximum."""
     flat = np.ascontiguousarray(pts, dtype=np.float64)
     box = np.ascontiguousarray(np.ravel(np.column_stack((lo, hi))), dtype=np.float64)
     c_double_p = ctypes.POINTER(ctypes.c_double)
@@ -301,7 +335,36 @@ def _generate_native(lib, pts, lo, hi, seed_ids, lloyd_iterations, out,
     if restricted and not lib.has_axes:
         raise RuntimeError("the native engine is too old for the per-axis movement "
                            "option: rebuild it with engine\\build_engine.bat")
-    if lib.has_axes:
+    global _last_convergence, _last_stop
+    _last_convergence = None
+    _last_stop = None
+    history = None
+    done_it = ctypes.c_int32(int(lloyd_iterations))
+    if lib.has_stop:
+        dens = (np.ascontiguousarray(density, dtype=np.float64) if density is not None
+                else None)
+        axes = np.array([1 if m else 0 for m in move_axes], dtype=np.int32)
+        history = np.zeros(max(int(lloyd_iterations), 1) * 3, dtype=np.float64)
+        res = lib.v3d_compute_ex5(
+            len(flat), flat.ctypes.data_as(c_double_p), box.ctypes.data_as(c_double_p),
+            int(lloyd_iterations),
+            dens.ctypes.data_as(c_double_p) if dens is not None else None,
+            float(radius), float(exponent), callback,
+            axes.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
+            history.ctypes.data_as(c_double_p), float(shift_tol), ctypes.byref(done_it))
+    elif lib.has_history:
+        dens = (np.ascontiguousarray(density, dtype=np.float64) if density is not None
+                else None)
+        axes = np.array([1 if m else 0 for m in move_axes], dtype=np.int32)
+        history = np.zeros(max(int(lloyd_iterations), 1) * 3, dtype=np.float64)
+        res = lib.v3d_compute_ex4(
+            len(flat), flat.ctypes.data_as(c_double_p), box.ctypes.data_as(c_double_p),
+            int(lloyd_iterations),
+            dens.ctypes.data_as(c_double_p) if dens is not None else None,
+            float(radius), float(exponent), callback,
+            axes.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
+            history.ctypes.data_as(c_double_p))
+    elif lib.has_axes:
         dens = (np.ascontiguousarray(density, dtype=np.float64) if density is not None
                 else None)
         axes = np.array([1 if m else 0 for m in move_axes], dtype=np.int32)
@@ -357,6 +420,12 @@ def _generate_native(lib, pts, lo, hi, seed_ids, lloyd_iterations, out,
         skipped = int(r.n_skipped)
     finally:
         lib.v3d_free(res)
+
+    if history is not None and int(lloyd_iterations) > 0:
+        n_done = max(1, min(int(done_it.value), int(lloyd_iterations)))
+        _last_convergence = history.reshape(-1, 3)[:n_done].copy()
+        _last_stop = dict(done=n_done, maximum=int(lloyd_iterations), tol=float(shift_tol),
+                          shift=float(_last_convergence[-1, 1]))
 
     if skipped:
         print("Voronoi 3D: %d seeds produced no valid cell and were skipped" % skipped)
@@ -787,9 +856,14 @@ def _weighted_centroids(points, cells, model, fixed):
 
 
 def lloyd(points, lo, hi, engine, iterations, model=None, fixed=None, progress=None,
-          move_axes=(True, True, True)):
+          move_axes=(True, True, True), shift_tol=0.0):
     """Lloyd relaxation. With `model` (DensityModel) the centroids are density
-    weighted and the seeds flagged in `fixed` (bool array) do not move."""
+    weighted and the seeds flagged in `fixed` (bool array) do not move. With
+    shift_tol > 0 the iterations stop when the mean seed shift (in units of the mean
+    cell size h = (V / N)^(1/3)) falls below it; `iterations` is then the maximum."""
+    global _last_stop
+    _last_stop = None
+    h_ref = (float(np.prod(np.asarray(hi) - np.asarray(lo))) / max(len(points), 1)) ** (1 / 3)
     for it in range(int(iterations)):
         if progress is not None and progress(0.9 * it / max(int(iterations), 1),
                                              "Lloyd iteration %d of %d" % (it + 1, iterations)):
@@ -806,7 +880,15 @@ def lloyd(points, lo, hi, engine, iterations, model=None, fixed=None, progress=N
         for a in range(3):
             if not move_axes[a]:  # frozen axis: the seeds keep their coordinate
                 new_points[:, a] = points[:, a]
+        shifts = np.linalg.norm(new_points - points, axis=1) / h_ref
+        if fixed is not None:
+            shifts = shifts[~np.asarray(fixed, dtype=bool)]
+        mean_shift = float(shifts.mean()) if len(shifts) else 0.0
         points = new_points
+        _last_stop = dict(done=it + 1, maximum=int(iterations), tol=float(shift_tol),
+                          shift=mean_shift)
+        if shift_tol > 0.0 and len(shifts) and mean_shift < shift_tol:
+            break
     return points
 
 
@@ -984,6 +1066,43 @@ def _machine_info():
     return _machine_cache
 
 
+def _report_convergence(conv, field_data, threshold=0.01):
+    """Report the convergence of the Lloyd iterations (native engine). `conv` has one row
+    per iteration: maximum and mean shift of the free seeds, in units of the mean cell size
+    h = (V / N)^(1/3), and CV of the cell volumes at the start of the iteration. The
+    relaxation is considered stable when the mean shift falls below `threshold` (1 % of h)."""
+    n_it = len(conv)
+    below = np.nonzero(conv[:, 1] < threshold)[0]
+    stable = ("mean shift below %.0f %% of h from iteration %d" % (100 * threshold, below[0] + 1)
+              if len(below) else "mean shift still above %.0f %% of h" % (100 * threshold))
+    _report_info("Voronoi 3D: convergence after %d iterations: mean seed shift %.4f h, "
+                 "maximum %.4f h, volume CV %.3f (%s)"
+                 % (n_it, conv[-1, 1], conv[-1, 0], conv[-1, 2], stable))
+    field_data.AddArray(_named_array("Lloyd_MaxShift_h", conv[:, 0], np.float64))
+    field_data.AddArray(_named_array("Lloyd_MeanShift_h", conv[:, 1], np.float64))
+    field_data.AddArray(_named_array("Lloyd_VolumeCV", conv[:, 2], np.float64))
+
+
+def _report_lloyd_stop(stop, field_data):
+    """Say why the Lloyd iterations ended: convergence threshold reached or maximum number
+    of iterations performed."""
+    done, maximum, tol, shift = stop["done"], stop["maximum"], stop["tol"], stop["shift"]
+    if tol > 0.0 and shift < tol:
+        _report_info("Voronoi 3D: Lloyd iterations stopped at iteration %d of at most %d: the "
+                     "mean seed shift (%.4f h) is below the convergence threshold (%.4f h)"
+                     % (done, maximum, shift, tol))
+    elif tol > 0.0:
+        _report_info("Voronoi 3D: Lloyd iterations stopped at the maximum number of "
+                     "iterations (%d): the mean seed shift (%.4f h) is still above the "
+                     "convergence threshold (%.4f h)" % (done, shift, tol))
+    else:
+        _report_info("Voronoi 3D: %d Lloyd iterations performed, mean seed shift %.4f h "
+                     "(convergence threshold disabled)" % (done, shift))
+    field_data.AddArray(_named_array("Lloyd_IterationsDone", [done], np.int32))
+    field_data.AddArray(_named_array("Lloyd_ConvergenceThreshold_h", [tol], np.float64))
+    field_data.AddArray(_named_array("Lloyd_MeanShiftFinal_h", [shift], np.float64))
+
+
 def _report_timing(out, started, engine_name, lloyd_iterations, model):
     """Print the total calculation time and store it in the field data of `out`
     (ComputationTime_s), so it can be quoted in a publication."""
@@ -999,6 +1118,14 @@ def _report_timing(out, started, engine_name, lloyd_iterations, model):
                  % (machine["OS"], machine["CPU"], machine["LogicalCores"], machine["RAM_GB"],
                     machine["Python"], machine["VTK"]))
     field_data = out.GetFieldData()
+    global _last_convergence
+    global _last_stop
+    conv, _last_convergence = _last_convergence, None
+    stop, _last_stop = _last_stop, None
+    if conv is not None and len(conv):
+        _report_convergence(conv, field_data)
+    if stop is not None:
+        _report_lloyd_stop(stop, field_data)
     field_data.AddArray(_named_array("ComputationTime_s", [elapsed], np.float64))
     field_data.AddArray(_named_array("NumLloydIterations", [int(lloyd_iterations)], np.int32))
     engine_array = vtkStringArray()
@@ -1053,7 +1180,8 @@ def remove_close_points(points, tolerance, priority=None):
 
 def generate(points, bounds, engine, lloyd_iterations, out, min_distance=0.0,
              seeds_out=None, density=None, density_radius=0.2, density_exponent=1.0,
-             min_separation=1e-6, progress=None, move_axes=(True, True, True), threads=0):
+             min_separation=1e-6, progress=None, move_axes=(True, True, True), threads=0,
+             convergence_threshold=0.0):
     """Full pipeline: points -> (Lloyd) -> Voronoi -> vtkUnstructuredGrid.
 
     min_distance: seeds closer than this fraction of the box size (per axis) to
@@ -1066,6 +1194,9 @@ def generate(points, bounds, engine, lloyd_iterations, out, min_distance=0.0,
     density_exponent: the centroid weight is (1 + local density) ** exponent.
     move_axes: (x, y, z) booleans: the seeds only move along the checked axes during
     the Lloyd iterations (points on a plane stay on it if that axis is unchecked).
+    convergence_threshold: the Lloyd iterations stop when the mean shift of the free seeds,
+    in units of the mean cell size, falls below this value (0 = always run all
+    `lloyd_iterations`, which is then a maximum when the threshold is set).
     progress: optional callable progress(fraction, text) -> bool (True = abort),
     see _progress_for(). The total calculation time is reported at the end and
     stored in the field data of `out` (ComputationTime_s).
@@ -1169,7 +1300,8 @@ def generate(points, bounds, engine, lloyd_iterations, out, min_distance=0.0,
                 final_positions = _generate_native(
                     lib, pts, lo, hi, seed_ids, lloyd_iterations, out,
                     pts_density, model.radius if model else 1.0,
-                    model.exponent if model else 1.0, progress, move_axes)
+                    model.exponent if model else 1.0, progress, move_axes,
+                    float(convergence_threshold))
                 _check_volumes(out, lo, hi, "native")
                 _add_seed_data(out, points, final_positions, seeds_out, density, model)
                 _report_timing(out, started, engine_label, lloyd_iterations, model)
@@ -1188,7 +1320,7 @@ def generate(points, bounds, engine, lloyd_iterations, out, min_distance=0.0,
     if lloyd_iterations > 0:
         fixed = (pts_density > 0.0) if pts_density is not None else None
         pts = lloyd(pts, lo, hi, engine, lloyd_iterations, model, fixed, progress,
-                    move_axes)
+                    move_axes, float(convergence_threshold))
     if progress is not None and progress(0.92, "Building the cells"):
         raise Cancelled()
     cells = tessellate(pts, lo, hi, engine)
@@ -1272,6 +1404,7 @@ class Voronoi3D(VTKPythonAlgorithmBase):
         self._engine = ENGINE_AUTO
         self._threads = 0
         self._lloyd = 0
+        self._conv_tol = 0.005
         self._min_separation = 1e-6
         self._move_axes = [True, True, True]
 
@@ -1313,9 +1446,22 @@ class Voronoi3D(VTKPythonAlgorithmBase):
     @smproperty.intvector(name="LloydIterations", label="Lloyd iterations",
                           default_values=0)
     @smdomain.xml(_doc("0 = plain Voronoi. Each iteration moves the seeds to the "
-                       "cell centroids (more regular cells)."))
+                       "cell centroids (more regular cells). With a convergence "
+                       "threshold this is the maximum number of iterations."))
     def SetLloydIterations(self, v):
         self._lloyd = max(0, int(v))
+        self.Modified()
+
+    @smproperty.doublevector(name="ConvergenceThreshold",
+                             label="Convergence threshold (mean seed shift / cell size)",
+                             default_values=0.005)
+    @smdomain.xml(_doc("The Lloyd iterations stop earlier when the mean displacement of "
+                       "the free seeds, divided by the mean cell size, falls below this "
+                       "value (0.005 = 0.5 %). The number of Lloyd iterations is then "
+                       "the maximum. 0 = always perform all iterations. The Output "
+                       "Messages report which condition ended the calculation."))
+    def SetConvergenceThreshold(self, v):
+        self._conv_tol = max(0.0, float(v))
         self.Modified()
 
     @smproperty.doublevector(name="MinSeparation",
@@ -1373,7 +1519,7 @@ class Voronoi3D(VTKPythonAlgorithmBase):
                      self._min_distance, seeds_out,
                      min_separation=self._min_separation,
                      progress=_progress_for(self), move_axes=self._move_axes,
-                     threads=self._threads)
+                     threads=self._threads, convergence_threshold=self._conv_tol)
         except Cancelled:
             _report_warning("Voronoi 3D: calculation cancelled")
             out.Initialize()
@@ -1408,6 +1554,7 @@ class Voronoi3DFromInput(VTKPythonAlgorithmBase):
         self._engine = ENGINE_AUTO
         self._threads = 0
         self._lloyd = 0
+        self._conv_tol = 0.005
         self._min_separation = 1e-6
         self._move_axes = [True, True, True]
         self._density_array = ""
@@ -1476,9 +1623,22 @@ class Voronoi3DFromInput(VTKPythonAlgorithmBase):
     @smproperty.intvector(name="LloydIterations", label="Lloyd iterations",
                           default_values=0)
     @smdomain.xml(_doc("0 = plain Voronoi. Each iteration moves the seeds to the "
-                       "cell centroids (more regular cells)."))
+                       "cell centroids (more regular cells). With a convergence "
+                       "threshold this is the maximum number of iterations."))
     def SetLloydIterations(self, v):
         self._lloyd = max(0, int(v))
+        self.Modified()
+
+    @smproperty.doublevector(name="ConvergenceThreshold",
+                             label="Convergence threshold (mean seed shift / cell size)",
+                             default_values=0.005)
+    @smdomain.xml(_doc("The Lloyd iterations stop earlier when the mean displacement of "
+                       "the free seeds, divided by the mean cell size, falls below this "
+                       "value (0.005 = 0.5 %). The number of Lloyd iterations is then "
+                       "the maximum. 0 = always perform all iterations. The Output "
+                       "Messages report which condition ended the calculation."))
+    def SetConvergenceThreshold(self, v):
+        self._conv_tol = max(0.0, float(v))
         self.Modified()
 
     @smproperty.stringvector(name="DensityArray", label="Density array",
@@ -1613,7 +1773,7 @@ class Voronoi3DFromInput(VTKPythonAlgorithmBase):
             generate(seeds, box, self._engine, self._lloyd, out, self._min_distance,
                      seeds_out, density, self._density_radius, self._density_exponent,
                      self._min_separation, _progress_for(self), self._move_axes,
-                     threads=self._threads)
+                     threads=self._threads, convergence_threshold=self._conv_tol)
         except Cancelled:
             _report_warning("Voronoi 3D: calculation cancelled")
             out.Initialize()

@@ -314,9 +314,9 @@ public:
         // neighbouring bucket to inspect on each axis (0 = none)
         const double margin = tol_ * inv_;
         const int sx = side(fx - kx, margin), sy = side(fy - ky, margin), sz = side(fz - kz, margin);
-        for (int ix = 0; ix <= (sx != 0); ++ix)
-            for (int iy = 0; iy <= (sy != 0); ++iy)
-                for (int iz = 0; iz <= (sz != 0); ++iz) {
+        for (int ix = 0; ix <= (sx != 0 ? 1 : 0); ++ix)
+            for (int iy = 0; iy <= (sy != 0 ? 1 : 0); ++iy)
+                for (int iz = 0; iz <= (sz != 0 ? 1 : 0); ++iz) {
                     auto it = head_.find(key(kx + ix * sx, ky + iy * sy, kz + iz * sz));
                     if (it == head_.end()) continue;
                     for (int64_t id = it->second; id >= 0; id = next_[id]) {
@@ -389,10 +389,21 @@ V3D_API void v3d_free(V3DResult *r) {
 // move_axes (optional, may be NULL): 3 flags (x, y, z); a seed only moves along
 // the axes whose flag is non-zero during the Lloyd iterations (e.g. points on a
 // plane z = const stay on that plane).
-V3D_API V3DResult *v3d_compute_ex3(int64_t n, const double *pts_in, const double *box,
+//
+// history (optional, may be NULL): caller-allocated array of 3 * lloyd_iterations
+// doubles. For every Lloyd iteration it receives: the maximum and the mean
+// displacement of the free seeds, both divided by the mean cell size
+// h = (box volume / n)^(1/3), and the coefficient of variation of the cell volumes
+// of the tessellation the iteration started from. They measure the convergence.
+//
+// shift_tol (0 = off): the iterations stop as soon as the mean displacement of the free
+// seeds (in units of h) falls below this value; lloyd_iterations is then a maximum.
+// iterations_done (optional, may be NULL) receives the number of iterations performed.
+V3D_API V3DResult *v3d_compute_ex5(int64_t n, const double *pts_in, const double *box,
                                    int32_t lloyd_iterations, const double *density,
                                    double radius, double exponent, V3DProgressFn progress_fn,
-                                   const int32_t *move_axes) {
+                                   const int32_t *move_axes, double *history, double shift_tol,
+                                   int32_t *iterations_done) {
     V3DResult *r = new (std::nothrow) V3DResult();
     if (!r) return nullptr;
     std::memset(r, 0, sizeof(V3DResult));
@@ -423,12 +434,21 @@ V3D_API V3DResult *v3d_compute_ex3(int64_t n, const double *pts_in, const double
         prog.span = 1.0 / units;
 
         // Lloyd relaxation: move every free seed to the (weighted) centroid of its cell
+        const double h_ref = std::cbrt((hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]) /
+                                       static_cast<double>(n));
+        int done_iterations = 0;
         for (int it = 0; it < lloyd_iterations; ++it) {
             prog.base = it / units;
             compute_cells(pts, lo, hi, cells, skipped, false, field.get(), &prog);
+            double d_max = 0.0, d_sum = 0.0, v_sum = 0.0, v_sum2 = 0.0;
+            int64_t n_moved = 0, n_vol = 0;
             for (const RawCell &rc : cells) {
                 if (rc.volume <= 0.0) continue;
+                v_sum += rc.volume;
+                v_sum2 += rc.volume * rc.volume;
+                ++n_vol;
                 if (density && density[rc.seed_id] > 0.0) continue;  // fixed anchor
+                double d2 = 0.0;
                 for (int a = 0; a < 3; ++a) {
                     if (move_axes && !move_axes[a]) continue;  // frozen axis
                     // keep the seed strictly inside the box
@@ -436,10 +456,29 @@ V3D_API V3DResult *v3d_compute_ex3(int64_t n, const double *pts_in, const double
                     double v = rc.centroid[a];
                     if (v < lo[a] + eps) v = lo[a] + eps;
                     if (v > hi[a] - eps) v = hi[a] - eps;
+                    const double dv = v - pts[3 * rc.seed_id + a];
+                    d2 += dv * dv;
                     pts[3 * rc.seed_id + a] = v;
                 }
+                const double d = std::sqrt(d2) / h_ref;
+                d_max = std::fmax(d_max, d);
+                d_sum += d;
+                ++n_moved;
             }
+            if (history) {
+                double cv = 0.0;
+                if (n_vol > 0 && v_sum > 0.0) {
+                    const double mean = v_sum / n_vol;
+                    cv = std::sqrt(std::fmax(v_sum2 / n_vol - mean * mean, 0.0)) / mean;
+                }
+                history[3 * it] = d_max;
+                history[3 * it + 1] = n_moved ? d_sum / n_moved : 0.0;
+                history[3 * it + 2] = cv;
+            }
+            done_iterations = it + 1;
+            if (shift_tol > 0.0 && n_moved > 0 && d_sum / n_moved < shift_tol) break;
         }
+        if (iterations_done) *iterations_done = done_iterations;
 
         prog.base = lloyd_iterations / units;
         compute_cells(pts, lo, hi, cells, skipped, true, nullptr, &prog);
@@ -607,6 +646,22 @@ V3D_API V3DResult *v3d_compute_ex3(int64_t n, const double *pts_in, const double
     return r;
 }
 
+V3D_API V3DResult *v3d_compute_ex4(int64_t n, const double *pts_in, const double *box,
+                                   int32_t lloyd_iterations, const double *density,
+                                   double radius, double exponent, V3DProgressFn progress_fn,
+                                   const int32_t *move_axes, double *history) {
+    return v3d_compute_ex5(n, pts_in, box, lloyd_iterations, density, radius, exponent,
+                           progress_fn, move_axes, history, 0.0, nullptr);
+}
+
+V3D_API V3DResult *v3d_compute_ex3(int64_t n, const double *pts_in, const double *box,
+                                   int32_t lloyd_iterations, const double *density,
+                                   double radius, double exponent, V3DProgressFn progress_fn,
+                                   const int32_t *move_axes) {
+    return v3d_compute_ex5(n, pts_in, box, lloyd_iterations, density, radius, exponent,
+                           progress_fn, move_axes, nullptr, 0.0, nullptr);
+}
+
 V3D_API V3DResult *v3d_compute_ex2(int64_t n, const double *pts_in, const double *box,
                                    int32_t lloyd_iterations, const double *density,
                                    double radius, double exponent, V3DProgressFn progress_fn) {
@@ -627,5 +682,7 @@ V3D_API V3DResult *v3d_compute(int64_t n, const double *pts_in, const double *bo
 
 // 2 = plain Voronoi / Lloyd, 3 = adds density weighted Lloyd (v3d_compute_ex),
 // 4 = adds the progress / cancel callback (v3d_compute_ex2),
-// 5 = adds the per-axis movement flags (v3d_compute_ex3)
-V3D_API int32_t v3d_abi_version() { return 5; }
+// 5 = adds the per-axis movement flags (v3d_compute_ex3),
+// 6 = adds the convergence history (v3d_compute_ex4),
+// 7 = adds the convergence threshold that stops the iterations (v3d_compute_ex5)
+V3D_API int32_t v3d_abi_version() { return 7; }
