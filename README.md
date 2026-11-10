@@ -10,8 +10,8 @@ pure-Python engines are available as a fallback.
 > Author: Stefano Bonduà - DICAM, University of Bologna.
 > Tested with **ParaView 5.10.1** on Windows (engine built with MSVC).
 
-<!-- Replace with a screenshot: docs/figures/overview.png -->
-![Overview](docs/figures/overview.png)
+<!-- Replace with a screenshot: docs/figures/Cover_overview.png -->
+![Overview](docs/figures/Cover_overview.png)
 
 ## Features
 
